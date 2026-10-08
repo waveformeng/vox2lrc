@@ -6,8 +6,8 @@
 #
 # <domain> must already have an A record pointing at the Droplet; Caddy gets a
 # Let's Encrypt certificate for it on first start. On the first deploy an API
-# token is generated on the server and printed once: store it in your backend's
-# secrets as the Bearer token.
+# token and callback secret are generated on the server and printed once: store
+# them in the app's secrets (VOX2LRC_API_TOKEN, VOX2LRC_CALLBACK_SECRET).
 set -euo pipefail
 
 HOST=${1:?usage: deploy.sh <droplet-ip> <domain>}
@@ -37,16 +37,21 @@ mkdir -p /opt/worker/.cache
 chown -R worker:worker "$APP" /opt/worker/.cache
 sudo -u worker -H bash -c "cd $APP && UV_PYTHON_DOWNLOADS=never uv sync --frozen --no-dev --extra server"
 
-# Secrets: generated here on first deploy, never sent over the wire from the laptop.
-if [ ! -f /etc/vox2lrc.env ]; then
-  TOKEN=$(openssl rand -hex 32)
-  sed "s/^VOX2LRC_API_TOKEN=.*/VOX2LRC_API_TOKEN=$TOKEN/" "$APP/.env.example" > /etc/vox2lrc.env
-  chown root:worker /etc/vox2lrc.env
-  chmod 0640 /etc/vox2lrc.env
-  echo "=== New API token (shown once; store it in your backend secrets) ==="
-  echo "$TOKEN"
-  echo "==================================================================="
-fi
+# Env file: add any key from .env.example that the server's file lacks.
+# Secrets are generated here and printed once; they never leave the server otherwise.
+touch /etc/vox2lrc.env
+chown root:worker /etc/vox2lrc.env
+chmod 0640 /etc/vox2lrc.env
+while IFS='=' read -r key value; do
+  case "$key" in ''|\#*) continue ;; esac
+  grep -q "^$key=" /etc/vox2lrc.env && continue
+  if [ "$value" = "generate-with-openssl-rand-hex-32" ]; then
+    value=$(openssl rand -hex 32)
+    echo "=== New $key (shown once; store it in the app's secrets) ==="
+    echo "$value"
+  fi
+  echo "$key=$value" >> /etc/vox2lrc.env
+done < "$APP/.env.example"
 
 install -m 0644 "$APP/deploy/vox2lrc.service" /etc/systemd/system/vox2lrc.service
 systemctl daemon-reload
