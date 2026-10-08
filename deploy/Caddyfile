@@ -1,0 +1,10 @@
+VOX2LRC_DOMAIN {
+	request_body {
+		max_size 50MB
+	}
+	reverse_proxy 127.0.0.1:8000
+	log {
+		output stderr
+		format console
+	}
+}
