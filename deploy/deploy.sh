@@ -53,10 +53,13 @@ while IFS='=' read -r key value; do
   echo "$key=$value" >> /etc/vox2lrc.env
 done < "$APP/.env.example"
 
-install -m 0644 "$APP/deploy/vox2lrc.service" /etc/systemd/system/vox2lrc.service
+for unit in vox2lrc.service vox2lrc-reconcile.service vox2lrc-reconcile.timer; do
+  install -m 0644 "$APP/deploy/$unit" "/etc/systemd/system/$unit"
+done
 systemctl daemon-reload
-systemctl enable --quiet vox2lrc
+systemctl enable --quiet vox2lrc vox2lrc-reconcile.timer
 systemctl restart vox2lrc
+systemctl restart vox2lrc-reconcile.timer
 
 sed "s/VOX2LRC_DOMAIN/$DOMAIN/" "$APP/deploy/Caddyfile" > /etc/caddy/Caddyfile
 systemctl reload-or-restart caddy

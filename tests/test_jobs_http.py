@@ -61,3 +61,18 @@ def test_callback_signature(base):
     expected = "sha256=" + hmac.new(b"s3cret", ts.encode() + b"." + body, hashlib.sha256).hexdigest()
     assert headers["X-Vox2lrc-Signature"] == expected
     assert json.loads(body)["result"]["lrc"] == "[00:01.00]é"
+
+
+def test_reconcile_ping(base, monkeypatch, capsys):
+    from vox2lrc import reconcile
+
+    monkeypatch.setenv("VOX2LRC_RECONCILE_URL", f"{base}/reconcile")
+    monkeypatch.setenv("VOX2LRC_CALLBACK_SECRET", "s3cret")
+    assert reconcile.main() == 0
+    headers, body = received[-1]
+    assert body == b"{}"
+    ts = headers["X-Vox2lrc-Timestamp"]
+    assert headers["X-Vox2lrc-Signature"] == "sha256=" + hmac.new(b"s3cret", ts.encode() + b".{}", hashlib.sha256).hexdigest()
+
+    monkeypatch.delenv("VOX2LRC_RECONCILE_URL")
+    assert reconcile.main() == 0  # not configured: does nothing

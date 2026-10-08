@@ -39,6 +39,9 @@ When the job finishes, vox2lrc POSTs `{"id", "status": "succeeded", "result": {"
 any job that never called back (resubmitting a known id is a no-op). `audio_url` and `callback_url` must be https
 and on the hosts allowed by `VOX2LRC_AUDIO_HOSTS` / `VOX2LRC_CALLBACK_HOSTS`.
 
+For callers that can't schedule their own recovery, `vox2lrc-reconcile.timer` POSTs a signed `{}` to
+`VOX2LRC_RECONCILE_URL` every 5 minutes (`python -m vox2lrc.reconcile`), so the app can resubmit lost jobs then.
+
 `POST /v1/transcribe` (multipart `file=`) is a synchronous version for manual testing. Settings: [.env.example](.env.example).
 
 ## Deploy (DigitalOcean Droplet)

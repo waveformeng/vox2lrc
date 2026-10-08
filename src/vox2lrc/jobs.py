@@ -106,7 +106,8 @@ def sign(secret: str, timestamp: str, body: bytes) -> str:
     return "sha256=" + hmac.new(secret.encode(), timestamp.encode() + b"." + body, hashlib.sha256).hexdigest()
 
 
-def post_callback(url: str, payload: dict, secret: str, timeout: float = 30) -> None:
+def post_callback(url: str, payload: dict, secret: str, timeout: float = 30) -> bytes:
+    """POSTs payload as signed JSON and returns the response body."""
     body = json.dumps(payload, ensure_ascii=False).encode()
     ts = str(int(time.time()))
     req = urllib.request.Request(url, data=body, method="POST", headers={
@@ -116,7 +117,7 @@ def post_callback(url: str, payload: dict, secret: str, timeout: float = 30) -> 
         "X-Vox2lrc-Signature": sign(secret, ts, body),
     })
     with _opener.open(req, timeout=timeout) as resp:
-        resp.read()
+        return resp.read()
 
 
 class JobRunner:

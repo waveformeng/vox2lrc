@@ -1,0 +1,15 @@
+[Unit]
+Description=Ask the app to reconcile its vox2lrc jobs
+After=network-online.target vox2lrc.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=worker
+Group=worker
+EnvironmentFile=/etc/vox2lrc.env
+ExecStart=/opt/worker/vox2lrc/.venv/bin/python -m vox2lrc.reconcile
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
