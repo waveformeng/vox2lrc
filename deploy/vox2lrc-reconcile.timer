@@ -1,0 +1,10 @@
+[Unit]
+Description=Reconcile vox2lrc jobs with the app every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+
+[Install]
+WantedBy=timers.target

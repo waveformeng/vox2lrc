@@ -2,25 +2,27 @@
 # Deploy the vox2lrc API to a Droplet prepared by droplet-init.sh. Safe to re-run.
 #
 #   deploy/deploy.sh <droplet-ip> <domain>
+#   SSH_KEY=~/.ssh/other_key deploy/deploy.sh ...   # to pick a specific key
 #
 # <domain> must already have an A record pointing at the Droplet; Caddy gets a
 # Let's Encrypt certificate for it on first start. On the first deploy an API
-# token is generated on the server and printed once: store it in your backend's
-# secrets as the Bearer token.
+# token and callback secret are generated on the server and printed once: store
+# them in the app's secrets (VOX2LRC_API_TOKEN, VOX2LRC_CALLBACK_SECRET).
 set -euo pipefail
 
 HOST=${1:?usage: deploy.sh <droplet-ip> <domain>}
 DOMAIN=${2:?usage: deploy.sh <droplet-ip> <domain>}
 APP=/opt/worker/vox2lrc
+SSH=(ssh -o BatchMode=yes ${SSH_KEY:+-i "$SSH_KEY" -o IdentitiesOnly=yes})
 cd "$(dirname "$0")/.."
 
-rsync -az --delete \
+rsync -az --delete -e "${SSH[*]}" \
   --include='/src/***' --include='/deploy/***' \
   --include='/.env.example' --include='/pyproject.toml' --include='/uv.lock' --include='/README.md' --include='/LICENSE' \
   --exclude='*' \
   ./ "root@$HOST:$APP/"
 
-ssh "root@$HOST" DOMAIN="$DOMAIN" APP="$APP" bash -s <<'REMOTE'
+"${SSH[@]}" "root@$HOST" DOMAIN="$DOMAIN" APP="$APP" bash -s <<'REMOTE'
 set -euo pipefail
 
 # One-time: Caddy for HTTPS, and open 80 (ACME + redirect) and 443.
@@ -35,21 +37,29 @@ mkdir -p /opt/worker/.cache
 chown -R worker:worker "$APP" /opt/worker/.cache
 sudo -u worker -H bash -c "cd $APP && UV_PYTHON_DOWNLOADS=never uv sync --frozen --no-dev --extra server"
 
-# Secrets: generated here on first deploy, never sent over the wire from the laptop.
-if [ ! -f /etc/vox2lrc.env ]; then
-  TOKEN=$(openssl rand -hex 32)
-  sed "s/^VOX2LRC_API_TOKEN=.*/VOX2LRC_API_TOKEN=$TOKEN/" "$APP/.env.example" > /etc/vox2lrc.env
-  chown root:worker /etc/vox2lrc.env
-  chmod 0640 /etc/vox2lrc.env
-  echo "=== New API token (shown once; store it in your backend secrets) ==="
-  echo "$TOKEN"
-  echo "==================================================================="
-fi
+# Env file: add any key from .env.example that the server's file lacks.
+# Secrets are generated here and printed once; they never leave the server otherwise.
+touch /etc/vox2lrc.env
+chown root:worker /etc/vox2lrc.env
+chmod 0640 /etc/vox2lrc.env
+while IFS='=' read -r key value; do
+  case "$key" in ''|\#*) continue ;; esac
+  grep -q "^$key=" /etc/vox2lrc.env && continue
+  if [ "$value" = "generate-with-openssl-rand-hex-32" ]; then
+    value=$(openssl rand -hex 32)
+    echo "=== New $key (shown once; store it in the app's secrets) ==="
+    echo "$value"
+  fi
+  echo "$key=$value" >> /etc/vox2lrc.env
+done < "$APP/.env.example"
 
-install -m 0644 "$APP/deploy/vox2lrc.service" /etc/systemd/system/vox2lrc.service
+for unit in vox2lrc.service vox2lrc-reconcile.service vox2lrc-reconcile.timer; do
+  install -m 0644 "$APP/deploy/$unit" "/etc/systemd/system/$unit"
+done
 systemctl daemon-reload
-systemctl enable --quiet vox2lrc
+systemctl enable --quiet vox2lrc vox2lrc-reconcile.timer
 systemctl restart vox2lrc
+systemctl restart vox2lrc-reconcile.timer
 
 sed "s/VOX2LRC_DOMAIN/$DOMAIN/" "$APP/deploy/Caddyfile" > /etc/caddy/Caddyfile
 systemctl reload-or-restart caddy
