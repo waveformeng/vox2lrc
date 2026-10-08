@@ -2,6 +2,7 @@
 # Deploy the vox2lrc API to a Droplet prepared by droplet-init.sh. Safe to re-run.
 #
 #   deploy/deploy.sh <droplet-ip> <domain>
+#   SSH_KEY=~/.ssh/other_key deploy/deploy.sh ...   # to pick a specific key
 #
 # <domain> must already have an A record pointing at the Droplet; Caddy gets a
 # Let's Encrypt certificate for it on first start. On the first deploy an API
@@ -12,15 +13,16 @@ set -euo pipefail
 HOST=${1:?usage: deploy.sh <droplet-ip> <domain>}
 DOMAIN=${2:?usage: deploy.sh <droplet-ip> <domain>}
 APP=/opt/worker/vox2lrc
+SSH=(ssh -o BatchMode=yes ${SSH_KEY:+-i "$SSH_KEY" -o IdentitiesOnly=yes})
 cd "$(dirname "$0")/.."
 
-rsync -az --delete \
+rsync -az --delete -e "${SSH[*]}" \
   --include='/src/***' --include='/deploy/***' \
   --include='/.env.example' --include='/pyproject.toml' --include='/uv.lock' --include='/README.md' --include='/LICENSE' \
   --exclude='*' \
   ./ "root@$HOST:$APP/"
 
-ssh "root@$HOST" DOMAIN="$DOMAIN" APP="$APP" bash -s <<'REMOTE'
+"${SSH[@]}" "root@$HOST" DOMAIN="$DOMAIN" APP="$APP" bash -s <<'REMOTE'
 set -euo pipefail
 
 # One-time: Caddy for HTTPS, and open 80 (ACME + redirect) and 443.
