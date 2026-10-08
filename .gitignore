@@ -218,3 +218,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# vox2lrc: never commit audio, generated lyrics, or secrets
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.lrc
+.env*
+!.env.example
+stems/
+.DS_Store

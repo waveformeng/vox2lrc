@@ -1,0 +1,35 @@
+[Unit]
+Description=vox2lrc transcription API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=worker
+Group=worker
+WorkingDirectory=/opt/worker/vox2lrc
+EnvironmentFile=/etc/vox2lrc.env
+Environment=NEEDLE_TELEMETRY=0 HF_HUB_DISABLE_TELEMETRY=1 PYTHONUNBUFFERED=1
+ExecStart=/opt/worker/vox2lrc/.venv/bin/uvicorn vox2lrc.server:app --host 127.0.0.1 --port 8000 --no-server-header --proxy-headers --forwarded-allow-ips 127.0.0.1
+Restart=on-failure
+RestartSec=5
+
+# Leave headroom for sshd and Caddy on a 1 GB box.
+MemoryMax=800M
+
+# Hardening: ffmpeg parses untrusted uploads.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+# Model weights and the engine library are cached here on first start.
+ReadWritePaths=/opt/worker/.cache
+
+[Install]
+WantedBy=multi-user.target
