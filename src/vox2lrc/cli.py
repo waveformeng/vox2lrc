@@ -5,7 +5,6 @@ import sys
 from pathlib import Path
 
 from .engines import load_engine
-from .lines import group_lines
 from .lrc import to_json, to_lrc
 from .pipeline import transcribe_stem
 
@@ -18,6 +17,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("-o", "--lrc", type=Path, help="write .lrc here (default: <input>.lrc)")
     p.add_argument("--json", type=Path, help="write word-timing JSON here (default: <input>.lyrics_timed.json)")
     p.add_argument("-l", "--language", choices=LANGUAGES, help="force the language (recommended)")
+    p.add_argument("--lyrics", type=Path,
+                   help="text file of the known lyrics, one sung line per line: output uses these words, timed from the audio")
     p.add_argument("--engine", default="whistle", help="whistle (default) or faster-whisper[:small|medium]")
     p.add_argument("--enhanced", action="store_true", help="per-word <mm:ss.xx> tags in the .lrc")
     p.add_argument("--title")
@@ -40,10 +41,11 @@ def main(argv: list[str] | None = None) -> int:
             text = " ".join(w.word for w in words) or "(no speech)"
             print(f"[{chunk.start:7.2f} - {chunk.end:7.2f}] {text}", file=sys.stderr)
 
+    lyrics = args.lyrics.read_text(encoding="utf-8") if args.lyrics else None
     engine = load_engine(args.engine)
     try:
-        transcript = transcribe_stem(str(stem), engine, args.language, max_duration=args.max_duration,
-                                     noise_db=args.noise_db, on_chunk=on_chunk)
+        transcript = transcribe_stem(str(stem), engine, args.language, lyrics=lyrics,
+                                     max_duration=args.max_duration, noise_db=args.noise_db, on_chunk=on_chunk)
     except subprocess.CalledProcessError as e:
         detail = (e.stderr or "").strip().splitlines()
         print(f"vox2lrc: {e.cmd[0]} failed: {detail[-1] if detail else f'exit {e.returncode}'}", file=sys.stderr)
@@ -51,11 +53,12 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as e:
         print(f"vox2lrc: {e}", file=sys.stderr)
         return 1
-    lines = group_lines(transcript.words, max_gap=args.max_gap, max_words=args.max_words)
+    lines = transcript.lines(max_gap=args.max_gap, max_words=args.max_words)
 
     lrc_path.write_text(to_lrc(lines, enhanced=args.enhanced, title=args.title, artist=args.artist,
                                duration=transcript.duration), encoding="utf-8")
-    doc = to_json(lines, language=transcript.language, engine=transcript.engine, duration=transcript.duration)
+    doc = to_json(lines, language=transcript.language, engine=transcript.engine, duration=transcript.duration,
+                  alignment=transcript.alignment_report())
     json_path.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"{len(transcript.words)} words, {len(lines)} lines, {len(transcript.chunks)} chunks "
           f"-> {lrc_path}, {json_path}", file=sys.stderr)

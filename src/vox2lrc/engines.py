@@ -11,7 +11,9 @@ from .types import Word
 class Engine(Protocol):
     name: str
 
-    def transcribe(self, pcm: bytes, language: str | None) -> list[Word]: ...
+    def transcribe(self, pcm: bytes, language: str | None, hints: list[str] | None = None) -> list[Word]:
+        """hints: words expected in the audio (from known lyrics). Engines may ignore them."""
+        ...
 
 
 class WhistleEngine:
@@ -24,14 +26,15 @@ class WhistleEngine:
 
     name = "whistle"
 
-    def __init__(self, weights: str | None = None, keywords: list[str] | None = None):
+    def __init__(self, weights: str | None = None):
         import needle
 
         self._model = needle.Whistle(weights=weights)
-        self._keywords = keywords
 
-    def transcribe(self, pcm: bytes, language: str | None) -> list[Word]:
-        result = self._model.transcribe(pcm, language=language, keywords=self._keywords, word_timestamps=True)
+    def transcribe(self, pcm: bytes, language: str | None, hints: list[str] | None = None) -> list[Word]:
+        # Hints become Whistle's keyword biasing, which measurably improves how
+        # many lyric words it hears.
+        result = self._model.transcribe(pcm, language=language, keywords=hints or None, word_timestamps=True)
         return [
             Word(w["word"].strip(), float(w["start"]), float(w["end"]), float(w["probability"]))
             for w in result.get("words", [])
@@ -48,7 +51,9 @@ class FasterWhisperEngine:
         self.name = f"faster-whisper-{model}"
         self._model = WhisperModel(model, device="cpu", compute_type=compute_type)
 
-    def transcribe(self, pcm: bytes, language: str | None) -> list[Word]:
+    def transcribe(self, pcm: bytes, language: str | None, hints: list[str] | None = None) -> list[Word]:
+        # Hints are ignored: prompting Whisper with lyrics makes it write them out
+        # whether or not they're sung, which measured worse timing.
         import numpy as np
 
         samples = np.frombuffer(pcm, dtype=np.float32)

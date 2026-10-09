@@ -23,7 +23,7 @@ AUTH = {"Authorization": f"Bearer {TOKEN}"}
 class FakeEngine:
     name = "fake"
 
-    def transcribe(self, pcm, language):
+    def transcribe(self, pcm, language, hints=None):
         return [Word("hello", 0.2, 0.6, 0.9), Word("world", 0.7, 1.1, 0.8)]
 
 
@@ -172,3 +172,32 @@ def test_job_requires_auth_and_valid_id(client):
     assert client.post("/v1/jobs", json=job_body()).status_code == 401
     assert client.post("/v1/jobs", headers=AUTH, json=job_body(id="../etc")).status_code == 422
     assert client.get("/v1/jobs/nope", headers=AUTH).status_code == 404
+
+
+def test_job_with_lyrics_uses_their_words_and_lines(tone_path):
+    calls = Calls(tone_path)
+    with make_client(calls) as client:
+        client.post("/v1/jobs", headers=AUTH, json=job_body(lyrics="Hello,\nworld!"))
+        job = wait_done(client, "job-1")
+    timed = job["result"]["timed"]
+    assert [line["text"] for line in timed["lines"]] == ["Hello,", "world!"]
+    assert timed["lines"][1]["words"][0]["start"] == 0.7  # timing from the transcription
+    assert timed["alignment"] == {"used": True, "matched": 2, "total": 2, "ratio": 1.0}
+    assert "[00:00.20]Hello,\n[00:00.70]world!" in job["result"]["lrc"]
+
+
+def test_job_with_unrelated_lyrics_falls_back_to_transcription(tone_path):
+    calls = Calls(tone_path)
+    with make_client(calls) as client:
+        client.post("/v1/jobs", headers=AUTH, json=job_body(lyrics="something else entirely\nabout the sea"))
+        job = wait_done(client, "job-1")
+    timed = job["result"]["timed"]
+    assert timed["lines"][0]["text"] == "hello world"
+    assert timed["alignment"]["used"] is False
+
+
+def test_transcribe_accepts_lyrics(client, tone):
+    r = client.post("/v1/transcribe", headers=AUTH, files={"file": ("tone.mp3", tone)},
+                    data={"lyrics": "HELLO world"})
+    assert r.status_code == 200, r.text
+    assert r.json()["timed"]["lines"][0]["text"] == "HELLO world"

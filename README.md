@@ -1,7 +1,17 @@
 # vox2lrc
 
-Vocals conversion to LRC: transcribe an isolated vocal stem into timed lyrics.
-There is no lyrics input; this is transcription, not forced alignment.
+Vocals conversion to LRC: turn an isolated vocal stem into timed lyrics.
+
+- **With the lyrics** (recommended): the output uses exactly those words and lines, timed from the
+  audio. The vocals are transcribed (lyric words are passed to the engine as hints), then the
+  transcription is aligned to the lyrics by word-level edit distance: matched words take the heard
+  word's timing, missed words share the gap between their neighbours. If under 30% of the lyric words
+  are heard, the lyrics probably aren't this song and the plain transcription is returned instead.
+  `timed.alignment` reports `{"used", "matched", "total", "ratio"}`.
+- **Without lyrics**: plain transcription, grouped into lines by pauses.
+
+On three demo songs, Whistle with lyrics put 82% of lines within 1 s of hand-made timings
+(Whisper small: 88%). Without lyrics, Whistle got 55% of words wrong.
 
 Output:
 - `.lrc` with line timestamps, or enhanced LRC with a `<mm:ss.xx>` tag per word
@@ -14,7 +24,7 @@ en/de/fr/es/it/nl/pl). `faster-whisper` is available as an alternative. Requires
 
 ```sh
 uv sync
-uv run vox2lrc vocals.mp3 -l en --enhanced -v
+uv run vox2lrc vocals.mp3 -l en --lyrics lyrics.txt --enhanced -v
 ```
 
 ## HTTP API
@@ -28,7 +38,8 @@ Transcription takes roughly as long as the song on a 1 vCPU Droplet, so apps use
 
 ```
 POST /v1/jobs   Authorization: Bearer $VOX2LRC_API_TOKEN
-{"id": "<your job id>", "audio_url": "<presigned R2 GET>", "callback_url": "https://<app>/...", "language": "en"}
+{"id": "<your job id>", "audio_url": "<presigned R2 GET>", "callback_url": "https://<app>/...", "language": "en",
+ "lyrics": "<optional: known lyrics, one sung line per line>"}
 → 202 {"id", "status": "queued"}
 ```
 
@@ -42,7 +53,7 @@ and on the hosts allowed by `VOX2LRC_AUDIO_HOSTS` / `VOX2LRC_CALLBACK_HOSTS`.
 For callers that can't schedule their own recovery, `vox2lrc-reconcile.timer` POSTs a signed `{}` to
 `VOX2LRC_RECONCILE_URL` every 5 minutes (`python -m vox2lrc.reconcile`), so the app can resubmit lost jobs then.
 
-`POST /v1/transcribe` (multipart `file=`) is a synchronous version for manual testing. Settings: [.env.example](.env.example).
+`POST /v1/transcribe` (multipart `file=`, optional `lyrics=`) is a synchronous version for manual testing. Settings: [.env.example](.env.example).
 
 ## Deploy (DigitalOcean Droplet)
 

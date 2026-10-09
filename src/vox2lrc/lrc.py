@@ -46,9 +46,15 @@ def to_lrc(lines: list[Line], *, enhanced: bool = False, title: str | None = Non
     return "\n".join(out) + "\n"
 
 
-def to_json(lines: list[Line], *, language: str | None, engine: str, duration: float | None) -> dict:
-    """The lyrics_timed.json document."""
-    return {
+def to_json(lines: list[Line], *, language: str | None, engine: str, duration: float | None,
+            alignment: dict | None = None) -> dict:
+    """The lyrics_timed.json document.
+
+    alignment, when lyrics were given: {"used", "matched", "total", "ratio"}.
+    used=false means the lyrics didn't match the audio and these lines are the
+    plain transcription.
+    """
+    doc = {
         "version": JSON_SCHEMA_VERSION,
         "generator": f"vox2lrc {_tool_version()}",
         "engine": engine,
@@ -68,3 +74,6 @@ def to_json(lines: list[Line], *, language: str | None, engine: str, duration: f
             for line in lines
         ],
     }
+    if alignment is not None:
+        doc["alignment"] = alignment
+    return doc

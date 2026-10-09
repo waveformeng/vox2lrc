@@ -49,6 +49,7 @@ class Job:
     language: str | None = None
     title: str | None = None
     artist: str | None = None
+    lyrics: str | None = None
     status: str = "queued"  # queued | running | succeeded | failed
     error: str | None = None
     result: dict | None = None
