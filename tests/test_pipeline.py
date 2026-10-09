@@ -18,7 +18,7 @@ class FakeEngine:
     def __init__(self):
         self.calls = []
 
-    def transcribe(self, pcm, language):
+    def transcribe(self, pcm, language, hints=None):
         seconds = len(pcm) / BYTES_PER_SAMPLE / SAMPLE_RATE
         self.calls.append(seconds)
         return [Word(f"w{len(self.calls)}", 0.1, min(0.5, seconds), 1.0)]

@@ -48,8 +48,8 @@ from starlette.concurrency import run_in_threadpool
 
 from .cli import LANGUAGES
 from .engines import Engine, load_engine
+from .align import MAX_LYRICS_LENGTH
 from .jobs import Job, JobRunner, RejectedURL, check_url, download, post_callback
-from .lines import group_lines
 from .lrc import to_json, to_lrc
 from .pipeline import transcribe_stem
 
@@ -63,6 +63,9 @@ class JobRequest(BaseModel):
     language: str | None = None
     title: str | None = Field(default=None, max_length=300)
     artist: str | None = Field(default=None, max_length=300)
+    # Known lyrics, one sung line per line: the output uses these words and lines,
+    # timed from the audio.
+    lyrics: str | None = Field(default=None, max_length=MAX_LYRICS_LENGTH)
 
 
 def _env_list(name: str, default: str = "") -> list[str]:
@@ -89,20 +92,22 @@ def create_app(engine_factory: Callable[[], Engine] | None = None, *, token: str
     state: dict = {"engine": None}
     engine_lock = threading.Lock()  # shared by the job thread and /v1/transcribe
 
-    def render(path: str, language: str | None, title: str | None, artist: str | None) -> dict:
+    def render(path: str, language: str | None, title: str | None, artist: str | None,
+               lyrics: str | None = None) -> dict:
         with engine_lock:
-            transcript = transcribe_stem(path, state["engine"], language, max_duration=max_duration)
-        lines = group_lines(transcript.words)
+            transcript = transcribe_stem(path, state["engine"], language, lyrics=lyrics or None,
+                                         max_duration=max_duration)
+        lines = transcript.lines()
         meta = {"title": title, "artist": artist, "duration": transcript.duration}
         return {
             "lrc": to_lrc(lines, **meta),
             "lrc_enhanced": to_lrc(lines, enhanced=True, **meta),
             "timed": to_json(lines, language=transcript.language, engine=transcript.engine,
-                             duration=transcript.duration),
+                             duration=transcript.duration, alignment=transcript.alignment_report()),
         }
 
     runner_kwargs = {"callback_delays": callback_delays} if callback_delays is not None else {}
-    runner = JobRunner(lambda job, path: render(path, job.language, job.title, job.artist),
+    runner = JobRunner(lambda job, path: render(path, job.language, job.title, job.artist, job.lyrics),
                        callback_secret=callback_secret, max_queue=max_queue, max_download=max_upload,
                        fetch=fetch, notify=notify, **runner_kwargs)
 
@@ -139,7 +144,8 @@ def create_app(engine_factory: Callable[[], Engine] | None = None, *, token: str
         except RejectedURL as e:
             raise HTTPException(422, str(e)) from None
         try:
-            job, _ = runner.submit(Job(req.id, req.audio_url, req.callback_url, req.language, req.title, req.artist))
+            job, _ = runner.submit(Job(req.id, req.audio_url, req.callback_url, req.language, req.title, req.artist,
+                                         req.lyrics))
         except queue.Full:
             raise HTTPException(429, "queue is full, try again later", headers={"Retry-After": "60"}) from None
         return job.public(with_result=False)
@@ -157,6 +163,7 @@ def create_app(engine_factory: Callable[[], Engine] | None = None, *, token: str
         language: Annotated[str | None, Form()] = None,
         title: Annotated[str | None, Form()] = None,
         artist: Annotated[str | None, Form()] = None,
+        lyrics: Annotated[str | None, Form(max_length=MAX_LYRICS_LENGTH)] = None,
     ) -> dict:
         check_language(language)
         if engine_lock.locked():
@@ -165,7 +172,7 @@ def create_app(engine_factory: Callable[[], Engine] | None = None, *, token: str
             path = os.path.join(workdir, "input")
             await run_in_threadpool(_save_upload, file, path, max_upload)
             try:
-                return await run_in_threadpool(render, path, language, title, artist)
+                return await run_in_threadpool(render, path, language, title, artist, lyrics)
             except subprocess.CalledProcessError:
                 raise HTTPException(422, "could not decode the audio file") from None
             except ValueError as e:
