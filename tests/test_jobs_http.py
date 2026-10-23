@@ -3,12 +3,15 @@
 import hashlib
 import hmac
 import json
+import shutil
+import ssl
+import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from vox2lrc.jobs import download, post_callback
+from vox2lrc.jobs import distrusted_cas, download, post_callback
 
 received = []
 
@@ -76,3 +79,16 @@ def test_reconcile_ping(base, monkeypatch, capsys):
 
     monkeypatch.delenv("VOX2LRC_RECONCILE_URL")
     assert reconcile.main() == 0  # not configured: does nothing
+
+
+def test_distrusted_cas(tmp_path):
+    if not shutil.which("openssl"):
+        pytest.skip("openssl not installed")
+    key, cert = tmp_path / "key.pem", tmp_path / "cert.pem"
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes",
+                    "-keyout", str(key), "-out", str(cert), "-days", "1", "-subj", "/CN=emSign ECC Root CA - G3",
+                    "-addext", "basicConstraints=critical,CA:TRUE"], check=True, capture_output=True)
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    assert distrusted_cas(context) == []
+    context.load_verify_locations(cafile=str(cert))
+    assert distrusted_cas(context) == ["emSign ECC Root CA - G3"]

@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import queue
+import ssl
 import tempfile
 import threading
 import time
@@ -35,6 +36,10 @@ log = logging.getLogger("vox2lrc.jobs")
 
 RESULT_TTL = 3600
 CALLBACK_DELAYS = (0, 2, 5, 15, 30, 60)  # seconds before each callback attempt
+
+# Roots with compromised subordinate keys (eMudhra, October 2026). urllib trusts the
+# OS store, not certifi, so these have to be removed from the OS store (deploy.sh does).
+DISTRUSTED_CAS = ("emSign ECC Root CA - G3",)
 
 
 class RejectedURL(ValueError):
@@ -78,6 +83,14 @@ def check_url(url: str, allowed_hosts: list[str], *, allow_http: bool = False) -
         if entry and (host == entry or (entry.startswith(".") and host.endswith(entry))):
             return
     raise RejectedURL(f"host not allowed: {host}")
+
+
+def distrusted_cas(context: ssl.SSLContext | None = None) -> list[str]:
+    """The DISTRUSTED_CAS that downloads and callbacks would still trust."""
+    context = context or ssl.create_default_context()
+    names = {value for cert in context.get_ca_certs() for rdn in cert["subject"]
+             for key, value in rdn if key == "commonName"}
+    return [name for name in DISTRUSTED_CAS if name in names]
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):

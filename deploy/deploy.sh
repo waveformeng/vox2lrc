@@ -37,6 +37,17 @@ mkdir -p /opt/worker/.cache
 chown -R worker:worker "$APP" /opt/worker/.cache
 sudo -u worker -H bash -c "cd $APP && UV_PYTHON_DOWNLOADS=never uv sync --frozen --no-dev --extra server"
 
+# eMudhra's emSign intermediate keys were compromised (October 2026). Job downloads and
+# callbacks use urllib, which trusts this store rather than certifi, so drop the root here
+# and refuse to deploy if it is still trusted.
+apt-get update -qq
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --only-upgrade ca-certificates
+sed -i 's|^mozilla/emSign_ECC_Root_CA_-_G3\.crt$|!&|' /etc/ca-certificates.conf
+update-ca-certificates >/dev/null
+sudo -u worker -H "$APP/.venv/bin/python" -c \
+  'import sys; from vox2lrc.jobs import distrusted_cas; sys.exit(", ".join(distrusted_cas()) or None)' \
+  || { echo "the CA above is still in the system trust store" >&2; exit 1; }
+
 # Env file: add any key from .env.example that the server's file lacks.
 # Secrets are generated here and printed once; they never leave the server otherwise.
 touch /etc/vox2lrc.env
