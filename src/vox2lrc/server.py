@@ -49,7 +49,7 @@ from starlette.concurrency import run_in_threadpool
 from .cli import LANGUAGES
 from .engines import Engine, load_engine
 from .align import MAX_LYRICS_LENGTH
-from .jobs import Job, JobRunner, RejectedURL, check_url, download, post_callback
+from .jobs import Job, JobRunner, RejectedURL, check_url, distrusted_cas, download, post_callback
 from .lrc import to_json, to_lrc
 from .pipeline import transcribe_stem
 
@@ -113,6 +113,8 @@ def create_app(engine_factory: Callable[[], Engine] | None = None, *, token: str
 
     @asynccontextmanager
     async def lifespan(_app):
+        for name in distrusted_cas():
+            logging.getLogger("vox2lrc.server").warning("system trust store still trusts %r; run deploy.sh", name)
         # Load (and on first run download) the model before accepting requests.
         state["engine"] = await run_in_threadpool(engine_factory)
         runner.start()
